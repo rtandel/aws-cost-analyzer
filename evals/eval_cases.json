@@ -1,51 +1,77 @@
 {
-    "description": "Eval cases for the Ops Intelligence Agent (Phase 1 stress test, logged 2026-07-20). Each case pairs a question with the tools the agent was expected to call and whether the actual run passed. Rerun these any time a tool, prompt, or model changes to catch regressions.",
-    "cases": [
-      {
-        "id": "cost_driver_01",
-        "question": "What's driving my AWS spend this week?",
-        "expected_tools": ["get_aws_cost", "get_cost_by_service"],
-        "actual_tools_called": ["get_aws_cost", "get_cost_by_service"],
-        "actual_answer_summary": "Correctly identified AWS Cost Explorer API usage itself as the largest cost driver, alongside minor S3 costs.",
-        "pass": true,
-        "notes": "Strong result. Correctly synthesized two tools into a non-obvious insight (querying Cost Explorer costs money) rather than just listing raw numbers."
-      },
-      {
-        "id": "forgotten_resources_01",
-        "question": "Is anything running that I forgot about?",
-        "expected_tools": ["list_ec2_instances"],
-        "actual_tools_called": ["list_ec2_instances"],
-        "actual_answer_summary": "Confidently reported no EC2 instances running, and offered to check other resource types if suspected.",
-        "pass": true,
-        "notes": "Correct given current tool scope. Known limitation: only covers EC2 -- doesn't know about Lambda, RDS, etc. Not a bug, just a scope gap to be aware of."
-      },
-      {
-        "id": "last_month_spend_01",
-        "question": "What did I spend last month?",
-        "expected_tools": ["get_aws_cost"],
-        "actual_tools_called": ["get_aws_cost"],
-        "actual_answer_summary": "Answered using trailing 30 days ($0.43) as a stand-in for 'last month' without flagging the substitution.",
-        "pass": true,
-        "notes": "PARTIAL CONCERN: no calendar-month-aware tool exists, so trailing-30-days is a reasonable proxy, but the agent should caveat that it's approximating rather than silently substituting. Candidate for either a new tool (calendar month cost) or a prompt instruction to flag approximations."
-      },
-      {
-        "id": "s3_costs_01",
-        "question": "Do I have any S3 costs?",
-        "expected_tools": ["get_s3_storage_cost"],
-        "actual_tools_called": ["get_s3_storage_cost"],
-        "actual_answer_summary": "Correctly summarized storage, request, and data transfer costs into readable categories from the raw USAGE_TYPE breakdown.",
-        "pass": true,
-        "notes": "Good synthesis of a less-structured tool result (usage-type grouped JSON) into plain language."
-      },
-      {
-        "id": "ec2_cost_consistency_01",
-        "question": "Are my EC2 costs matching the number of instances actually running?",
-        "expected_tools": ["get_cost_by_service", "list_ec2_instances"],
-        "actual_tools_called": ["get_cost_by_service", "list_ec2_instances"],
-        "actual_answer_summary": "Correctly identified $0 EC2 cost, but hedged heavily on instance count, saying it did not have 'specific EC2 instance information' despite having called list_ec2_instances in this same turn.",
-        "pass": false,
-        "notes": "ROOT CAUSE CONFIRMED (2026-07-20): added a print of the raw tool result and reran. list_ec2_instances returned the exact same '[]' in this case as in forgotten_resources_01 -- so this is NOT a data or code bug. get_cost_by_service only returns services that have a nonzero cost group, so EC2 never appears as a key in that JSON at all when its cost is zero. The model reads 'EC2 missing from cost breakdown' + 'empty instance list' as ambiguous/suspicious rather than confidently concluding 'zero instances, zero cost, consistent' -- it starts speculating about billing/account issues that don't exist. Root cause is prompt/reasoning: the model isn't reliably treating 'absent from cost breakdown' as equivalent to '$0'. NEXT STEP: add a system instruction along the lines of 'if a service does not appear in a cost breakdown, treat its cost as zero' and retest this case before building the Phase 3 eval harness."
-      }
-    ]
-  }
-  
+  "description": "Eval cases for the Ops Intelligence Agent (Phase 1 stress test, logged 2026-07-20). Each case pairs a question with the tools the agent was expected to call and whether the actual run passed. Rerun these any time a tool, prompt, or model changes to catch regressions.",
+  "cases": [
+    {
+      "id": "cost_driver_01",
+      "question": "What's driving my AWS spend this week?",
+      "expected_tools": ["get_aws_cost", "get_cost_by_service"],
+      "actual_tools_called": ["get_aws_cost", "get_cost_by_service"],
+      "actual_answer_summary": "Correctly identified AWS Cost Explorer API usage itself as the largest cost driver, alongside minor S3 costs.",
+      "pass": true,
+      "notes": "Strong result. Correctly synthesized two tools into a non-obvious insight (querying Cost Explorer costs money) rather than just listing raw numbers."
+    },
+    {
+      "id": "forgotten_resources_01",
+      "question": "Is anything running that I forgot about?",
+      "expected_tools": ["list_ec2_instances"],
+      "actual_tools_called": ["list_ec2_instances"],
+      "actual_answer_summary": "Confidently reported no EC2 instances running, and offered to check other resource types if suspected.",
+      "pass": true,
+      "notes": "Correct given current tool scope. Known limitation: only covers EC2 -- doesn't know about Lambda, RDS, etc. Not a bug, just a scope gap to be aware of."
+    },
+    {
+      "id": "last_month_spend_01",
+      "question": "What did I spend last month?",
+      "expected_tools": ["get_aws_cost"],
+      "actual_tools_called": ["get_aws_cost"],
+      "actual_answer_summary": "Answered using trailing 30 days ($0.43) as a stand-in for 'last month' without flagging the substitution.",
+      "pass": true,
+      "notes": "PARTIAL CONCERN: no calendar-month-aware tool exists, so trailing-30-days is a reasonable proxy, but the agent should caveat that it's approximating rather than silently substituting. Candidate for either a new tool (calendar month cost) or a prompt instruction to flag approximations."
+    },
+    {
+      "id": "s3_costs_01",
+      "question": "Do I have any S3 costs?",
+      "expected_tools": ["get_s3_storage_cost"],
+      "actual_tools_called": ["get_s3_storage_cost"],
+      "actual_answer_summary": "Correctly summarized storage, request, and data transfer costs into readable categories from the raw USAGE_TYPE breakdown.",
+      "pass": true,
+      "notes": "Good synthesis of a less-structured tool result (usage-type grouped JSON) into plain language."
+    },
+    {
+      "id": "ec2_cost_consistency_01",
+      "question": "Are my EC2 costs matching the number of instances actually running?",
+      "expected_tools": ["get_cost_by_service", "list_ec2_instances"],
+      "actual_tools_called": ["get_cost_by_service", "list_ec2_instances"],
+      "actual_answer_summary": "Correctly identified $0 EC2 cost, but hedged heavily on instance count, saying it did not have 'specific EC2 instance information' despite having called list_ec2_instances in this same turn.",
+      "pass": true,
+      "notes": "ROOT CAUSE CONFIRMED (2026-07-20): added a print of the raw tool result and reran. list_ec2_instances returned the exact same '[]' in this case as in forgotten_resources_01 -- so this was NOT a data or code bug. get_cost_by_service only returns services that have a nonzero cost group, so EC2 never appears as a key in that JSON at all when its cost is zero. The model was reading 'EC2 missing from cost breakdown' + 'empty instance list' as ambiguous/suspicious rather than confidently concluding 'zero instances, zero cost, consistent'. FIX APPLIED (2026-07-21): added a system prompt instructing the model to treat a service absent from a cost breakdown as a confident zero rather than missing data. RETESTED: model now answers cleanly -- 'no EC2 costs... no EC2 instances... both are at zero, so they match.' Case now passes."
+    },
+    {
+      "id": "s3_date_hallucination_01",
+      "question": "Do I have any S3 costs?",
+      "expected_tools": ["get_s3_storage_cost"],
+      "actual_tools_called": ["get_cost_by_service"],
+      "actual_answer_summary": "Cited specific dates as 'On 2023-06-22, your S3 cost was $0.0000141897 USD' etc.",
+      "pass": false,
+      "notes": "NEW FINDING (2026-07-21): rerun of this question after the system prompt fix picked a different (still valid) tool than the original run -- get_cost_by_service instead of get_s3_storage_cost. Non-determinism in tool choice is expected and not itself a bug (flag for Phase 3 eval design: decide whether eval requires an exact tool match or accepts any tool from an acceptable set). However, the final answer also mislabeled every date as year 2023 when the raw tool result clearly showed 2026 (e.g. tool returned TimePeriod Start '2026-06-22', answer said 'On 2023-06-22...'). This is a genuine hallucination in date transcription, not an approximation or reasonable interpretation -- worth root-causing and adding a guardrail/check in Phase 3 (e.g. an assertion that any date cited in an answer must appear in the tool result actually used)."
+    },
+    {
+      "id": "runbook_retrieval_01",
+      "question": "Has this AWS Cost Explorer spend pattern happened before? How was it resolved?",
+      "expected_tools": ["search_runbooks"],
+      "actual_tools_called": ["search_runbooks"],
+      "actual_answer_summary": "Correctly cited the caching resolution from the matching runbook, and explicitly distinguished the second (irrelevant) retrieved result as an unrelated incident rather than blending it in.",
+      "pass": true,
+      "notes": "PHASE 2 MILESTONE (2026-07-23): first working end-to-end RAG retrieval test through the actual agent loop (not just the standalone Chroma scratch notebook). Good sign: model didn't just surface both retrieved results uncritically -- it reasoned about relevance between them and only used the one that actually answered the question. Caveat: with only 3 documents in the store, n_results=2 will nearly always return 2 of 3 regardless of true relevance strength, so this isn't yet a strong test of retrieval quality at scale -- just confirmation the mechanism works end to end."
+    },
+    {
+      "id": "memory_followup_recall_01",
+      "question": "How would I actually fix that? (follow-up to 'What's driving my AWS spend this week?')",
+      "expected_tools": ["search_runbooks"],
+      "actual_tools_called": ["search_runbooks"],
+      "actual_answer_summary": "Correctly cited the July 14, 2026 Cost Explorer incident and the caching resolution, referencing the specific documented fix rather than generic cost-optimization advice.",
+      "pass": true,
+      "notes": "ROOT CAUSE CONFIRMED (2026-07-23): initial failure was NOT a memory or architecture problem -- confirmed by testing an alternate follow-up phrasing ('has this come up before, and how was it resolved?') in the same conversation, which correctly triggered search_runbooks. This isolated the gap to wording sensitivity: 'how do I fix that' didn't read as a lookup request the way 'has this happened before' did. FIX APPLIED: added a system prompt instruction to check search_runbooks first whenever asked how to fix/resolve/address an issue, before giving general advice. RETESTED with the original failing phrasing ('How would I actually fix that?'): now correctly calls search_runbooks and surfaces the specific caching fix. Second confirmed case (after ec2_cost_consistency_01) of a real reliability gap found through testing and closed with a targeted system prompt addition rather than a guess."
+    }
+  ]
+}
