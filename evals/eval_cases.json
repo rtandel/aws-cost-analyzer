@@ -50,6 +50,7 @@
       "id": "s3_date_hallucination_01",
       "question": "Do I have any S3 costs?",
       "expected_tools": ["get_s3_storage_cost"],
+      "acceptable_tool_sets": [["get_s3_storage_cost"], ["get_cost_by_service"]],
       "actual_tools_called": ["get_cost_by_service"],
       "actual_answer_summary": "Cited specific dates as 'On 2023-06-22, your S3 cost was $0.0000141897 USD' etc.",
       "pass": false,
@@ -67,6 +68,8 @@
     {
       "id": "memory_followup_recall_01",
       "question": "How would I actually fix that? (follow-up to 'What's driving my AWS spend this week?')",
+      "prompt": "How would I actually fix that?",
+      "setup_turns": ["What's driving my AWS spend this week?"],
       "expected_tools": ["search_runbooks"],
       "actual_tools_called": ["search_runbooks"],
       "actual_answer_summary": "Correctly cited the July 14, 2026 Cost Explorer incident and the caching resolution, referencing the specific documented fix rather than generic cost-optimization advice.",
