@@ -9,7 +9,10 @@ from tools import tools, TOOL_FUNCTIONS
 load_dotenv(override=True)
 
 MODEL = "gpt-4o"
-openai = OpenAI()
+# Higher than the SDK default (2) -- the org's gpt-4o TPM limit is tight enough
+# that a full eval-harness run can trip it, and this is a transient condition
+# worth waiting out rather than crashing the run.
+openai = OpenAI(max_retries=6)
 
 SYSTEM_PROMPT = (
     "You are an AWS operations assistant. When interpreting get_cost_by_service results, "
@@ -19,7 +22,10 @@ SYSTEM_PROMPT = (
     "rather than speculating about billing or configuration issues. When asked how to fix, "
     "resolve, or address a cost or infrastructure issue, always check search_runbooks for "
     "a documented resolution first -- prefer a specific, already-known fix over generic "
-    "best-practice advice."
+    "best-practice advice. None of your tools are aware of calendar periods (e.g. 'last "
+    "month', 'this quarter') -- when asked about one, use the closest available trailing-day "
+    "window as a stand-in, but explicitly say you are approximating and name the window you "
+    "used, rather than presenting it as an exact match."
 )
 
 conversation_history = [{"role": "system", "content": SYSTEM_PROMPT}]

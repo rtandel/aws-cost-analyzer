@@ -22,6 +22,7 @@ import datetime
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -29,12 +30,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import agent
 from openai import OpenAI
 
-JUDGE_MODEL = "gpt-4o-mini"
+JUDGE_MODEL = "gpt-4o"
 EVAL_CASES_PATH = Path(__file__).resolve().parent / "eval_cases.json"
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 
-judge_client = OpenAI()
+judge_client = OpenAI(max_retries=6)
 
 
 def check_tool_selection(case: dict, actual_tools: list[str]) -> tuple[bool, list[list[str]]]:
@@ -44,24 +45,42 @@ def check_tool_selection(case: dict, actual_tools: list[str]) -> tuple[bool, lis
     return ok, acceptable_sets
 
 
-def judge_answer_quality(question: str, answer: str, reference_summary: str, notes: str) -> dict:
+def judge_answer_quality(question: str, answer: str, reference_summary: str, notes: str, tool_results_text: str) -> dict:
     prompt = f"""You are grading an AWS operations assistant's answer for a regression eval suite.
 
 Question asked: {question}
 
-Reference summary of what a passing answer looked like on a previously graded run:
+Reference summary of what a passing answer looked like on a PAST run (the account's real
+AWS data changes over time, so treat this as an example of the right kind of reasoning and
+tone, not a literal script the new answer must match):
 {reference_summary}
 
-Notes from that prior grading (may include known caveats):
+Notes from that prior grading (may include known caveats, e.g. dataset-size limitations
+that also apply to this run -- do not fail the answer for a caveat already noted here):
 {notes}
+
+Raw tool results actually returned during THIS run (ground truth for this run -- use this,
+not the reference summary above, to check whether any figure/date/fact in the new answer is
+real or fabricated):
+{tool_results_text or "(no tools were called this run)"}
 
 New answer to grade:
 {answer}
 
-Judge whether the new answer meets the same quality bar as the reference: reaches a
-similar conclusion, is consistent with the kind of data described, and contains no
-fabricated specifics (e.g. wrong dates, invented numbers). Minor wording differences
-are fine and should not fail the answer.
+Judge only:
+1. Is every specific figure, date, or fact the answer cites actually present in or a fair
+   summary of the raw tool results above? A number that looks unusually precise is NOT a
+   fabrication if it matches the tool data -- only flag it if it does NOT appear there.
+2. Does the answer reach a conclusion that is reasonable given THIS run's actual tool
+   results (not necessarily the same conclusion as the old reference, if the underlying
+   data has genuinely changed)?
+Do not fail the answer for different wording, a different but equally valid framing, or for
+omitting narrative flourishes the reference happened to include. Do not perform your own
+precise arithmetic on the raw values and fail the answer over rounding or small floating-point
+differences -- a qualitative or range-based claim (e.g. "very minimal", "less than $0.001",
+"about $0.0002") is correct as long as it does not contradict the actual order of magnitude in
+the tool data. Only fail on a genuine, unambiguous mismatch (a fact that is flatly absent from
+or contradicted by the tool data), not on imprecision.
 
 Respond with strict JSON only: {{"meets_bar": true or false, "reasoning": "one or two sentences"}}"""
 
@@ -95,16 +114,18 @@ def run_case(case: dict, verbose: bool = False) -> dict:
 
     tool_ok, acceptable_sets = check_tool_selection(case, actual_tools)
 
+    tool_results_text = "\n".join(
+        m["content"] for m in agent.conversation_history if isinstance(m, dict) and m.get("role") == "tool"
+    )
+
     judge = judge_answer_quality(
         case["question"],
         answer,
         case.get("actual_answer_summary", ""),
         case.get("notes", ""),
+        tool_results_text,
     )
 
-    tool_results_text = "\n".join(
-        m["content"] for m in agent.conversation_history if isinstance(m, dict) and m.get("role") == "tool"
-    )
     date_check = check_date_guardrail(answer, tool_results_text)
 
     overall_pass = tool_ok and judge["meets_bar"] and (date_check is None or date_check["ok"])
@@ -137,7 +158,13 @@ def main():
             sys.exit(1)
 
     results = []
-    for case in cases:
+    for i, case in enumerate(cases):
+        if i > 0:
+            # This org's gpt-4o TPM limit is tight enough that back-to-back cases
+            # (each making several agent + judge calls) can sustain the cap rather
+            # than just spike through it, which the SDK's own retry/backoff can't
+            # recover from -- so pace our own request rate instead.
+            time.sleep(5)
         print(f"Running: {case['id']} — {case['question']}")
         result = run_case(case, verbose=args.verbose)
         status = "PASS" if result["pass"] else "FAIL"
